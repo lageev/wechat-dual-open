@@ -100,3 +100,7 @@ macOS 通过 `CFBundleIdentifier` 识别应用，同一个标识符只能运行�
 ## 推荐工具
 
 [PasteHub](https://pastehub.yayalu.top/) — macOS 好用的剪贴板管理工具
+
+## 友情链接
+
+[Linux DO](https://linux.do) — 技术爱好者社区

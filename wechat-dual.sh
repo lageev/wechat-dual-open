@@ -122,39 +122,6 @@ do_install() {
     info "安装完成！你可以从 Launchpad 或 $(dst_app) 启动第二个微信。"
 }
 
-do_update() {
-    echo ""
-
-    if ! check_dst; then
-        error "${APP_NAME}.app 不存在，请先执行安装。"
-        return 1
-    fi
-
-    echo ""
-    step "[1/4] 删除旧的 ${APP_NAME}.app..."
-    sudo rm -rf "$(dst_app)"
-    info "已删除"
-
-    if ! check_src; then
-        return 1
-    fi
-
-    step "[2/4] 重新复制 WeChat.app..."
-    sudo cp -R "$SRC_APP" "$(dst_app)"
-    info "复制完成"
-
-    step "[3/4] 修改 Bundle Identifier..."
-    sudo /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$(plist)"
-    info "标识符修改完成"
-
-    step "[4/4] 重新签名应用..."
-    sudo codesign --force --deep --sign - "$(dst_app)"
-    info "签名完成"
-
-    echo ""
-    info "更新完成！${APP_NAME}.app 已刷新到最新版本。"
-}
-
 do_resign() {
     echo ""
 
@@ -231,10 +198,9 @@ show_menu() {
     echo -e "  ${BOLD}请选择操作:${NC}"
     echo ""
     echo -e "  ${CYAN}1)${NC} 安装双开     首次使用，复制并配置双开微信"
-    echo -e "  ${CYAN}2)${NC} 更新双开     微信更新后，重新复制并配置"
-    echo -e "  ${CYAN}3)${NC} 重新签名     仅重新签名（微信更新后的快捷方式）"
-    echo -e "  ${CYAN}4)${NC} 查看状态     检查双开微信当前状态"
-    echo -e "  ${CYAN}5)${NC} 卸载双开     删除双开微信"
+    echo -e "  ${CYAN}2)${NC} 修复签名     双开微信自行更新后，修复签名即可继续使用"
+    echo -e "  ${CYAN}3)${NC} 查看状态     检查双开微信当前状态"
+    echo -e "  ${CYAN}4)${NC} 卸载双开     删除双开微信"
     echo -e "  ${CYAN}0)${NC} 退出"
     echo ""
 }
@@ -246,13 +212,12 @@ main() {
         do_status
         echo ""
         show_menu
-        read -rp "  输入选项 [0-5]: " choice
+        read -rp "  输入选项 [0-4]: " choice
         case "${choice}" in
             1) do_install ;;
-            2) do_update ;;
-            3) do_resign ;;
-            4) do_status ;;
-            5) do_uninstall ;;
+            2) do_resign ;;
+            3) do_status ;;
+            4) do_uninstall ;;
             0) echo ""; info "再见！"; exit 0 ;;
             *) warn "无效选项" ;;
         esac

@@ -5,8 +5,9 @@ macOS 微信双开管理工具，一条命令实现微信多开。
 ## 快速开始
 
 ```bash
-# 克隆仓库
+# 克隆仓库（SSH 或 HTTPS 均可）
 git clone git@github.com:lageev/wechat-dual-open.git
+# git clone https://github.com/lageev/wechat-dual-open.git
 cd wechat-dual-open
 
 # 添加执行权限

@@ -99,7 +99,7 @@ do_install() {
     if check_dst; then
         warn "$(dst_app) 已存在。"
         read -rp "  是否覆盖？(y/N): " ans
-        [[ "${ans,,}" == "y" ]] || return 0
+        [[ "$(echo "$ans" | tr '[:upper:]' '[:lower:]')" == "y" ]] || return 0
         step "删除旧的 ${APP_NAME}.app..."
         sudo rm -rf "$(dst_app)"
     fi
@@ -221,7 +221,7 @@ do_uninstall() {
     fi
 
     read -rp "  确认卸载 ${APP_NAME}.app？(y/N): " ans
-    [[ "${ans,,}" == "y" ]] || return 0
+    [[ "$(echo "$ans" | tr '[:upper:]' '[:lower:]')" == "y" ]] || return 0
 
     sudo rm -rf "$(dst_app)"
     info "${APP_NAME}.app 已卸载。"

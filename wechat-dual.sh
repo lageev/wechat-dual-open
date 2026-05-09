@@ -55,7 +55,7 @@ plist() {
 
 ask_name() {
     local name
-    read -rp "  请输入双开应用名称 [wechat2]: " name
+    read -rp "  为双开微信取个名字（直接回车使用默认名称 wechat2）: " name
     name="${name:-wechat2}"
     # 移除 .app 后缀（如果用户误加了）
     name="${name%.app}"

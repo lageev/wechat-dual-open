@@ -16,6 +16,18 @@ chmod +x wechat-dual.sh
 ./wechat-dual.sh
 ```
 
+## 全局命令（可选）
+
+将脚本链接到 `/usr/local/bin`，即可在任意目录直接调用 `wechat-dual`：
+
+```bash
+sudo ln -sf /path/to/wechat-dual.sh /usr/local/bin/wechat-dual
+```
+
+之后在终端输入 `wechat-dual` 即可启动。由于使用软链接，`git pull` 更新脚本后命令自动生效。
+
+> **注意：** 需要在真实的终端中执行（如 Terminal.app、iTerm2），在 IDE 内置终端中可能因无法输入 sudo 密码而失败。
+
 ## 功能说明
 
 脚本启动后会显示交互菜单：

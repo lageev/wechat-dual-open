@@ -1,13 +1,12 @@
 #!/bin/bash
 # WeChat Dual-Open Manager for macOS
-# Manages a second WeChat instance (wechat2.app)
+# Manages a second WeChat instance
 
 set -euo pipefail
 
 SRC_APP="/Applications/WeChat.app"
-DST_APP="/Applications/wechat2.app"
 BUNDLE_ID="com.fring.wechat"
-PLIST="$DST_APP/Contents/Info.plist"
+CONF="$HOME/.wechat-dual.conf"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -32,6 +31,37 @@ warn()    { echo -e "  ${YELLOW}[!]${NC} $1"; }
 error()   { echo -e "  ${RED}[✗]${NC} $1"; }
 step()    { echo -e "  ${CYAN}[→]${NC} $1"; }
 
+# 读取已保存的应用名
+load_name() {
+    if [[ -f "$CONF" ]]; then
+        APP_NAME=$(cat "$CONF")
+    else
+        APP_NAME="wechat2"
+    fi
+}
+
+# 保存应用名到配置文件
+save_name() {
+    echo "$1" > "$CONF"
+}
+
+dst_app() {
+    echo "/Applications/${APP_NAME}.app"
+}
+
+plist() {
+    echo "$(dst_app)/Contents/Info.plist"
+}
+
+ask_name() {
+    local name
+    read -rp "  请输入双开应用名称 [wechat2]: " name
+    name="${name:-wechat2}"
+    # 移除 .app 后缀（如果用户误加了）
+    name="${name%.app}"
+    echo "$name"
+}
+
 check_src() {
     if [[ ! -d "$SRC_APP" ]]; then
         error "未找到微信: $SRC_APP"
@@ -42,18 +72,17 @@ check_src() {
 }
 
 check_dst() {
-    if [[ ! -d "$DST_APP" ]]; then
-        return 1
-    fi
-    return 0
+    [[ -d "$(dst_app)" ]]
 }
 
 check_bundle_id() {
-    if [[ ! -f "$PLIST" ]]; then
+    local p
+    p="$(plist)"
+    if [[ ! -f "$p" ]]; then
         return 1
     fi
     local current
-    current=$(plutil -extract CFBundleIdentifier raw "$PLIST" 2>/dev/null || echo "")
+    current=$(plutil -extract CFBundleIdentifier raw "$p" 2>/dev/null || echo "")
     [[ "$current" == "$BUNDLE_ID" ]]
 }
 
@@ -63,82 +92,87 @@ do_install() {
         return 1
     fi
 
+    local name
+    name=$(ask_name)
+    APP_NAME="$name"
+
     if check_dst; then
-        warn "wechat2.app 已存在。"
+        warn "$(dst_app) 已存在。"
         read -rp "  是否覆盖？(y/N): " ans
         [[ "${ans,,}" == "y" ]] || return 0
-        step "删除旧的 wechat2.app..."
-        sudo rm -rf "$DST_APP"
+        step "删除旧的 ${APP_NAME}.app..."
+        sudo rm -rf "$(dst_app)"
     fi
 
     echo ""
-    step "[1/3] 复制 WeChat.app → wechat2.app ..."
-    sudo cp -R "$SRC_APP" "$DST_APP"
+    step "[1/3] 复制 WeChat.app → ${APP_NAME}.app ..."
+    sudo cp -R "$SRC_APP" "$(dst_app)"
     info "复制完成"
 
     step "[2/3] 修改 Bundle Identifier → $BUNDLE_ID ..."
-    sudo /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$PLIST"
+    sudo /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$(plist)"
     info "标识符修改完成"
 
     step "[3/3] 重新签名应用..."
-    sudo codesign --force --deep --sign - "$DST_APP"
+    sudo codesign --force --deep --sign - "$(dst_app)"
     info "签名完成"
 
+    save_name "$APP_NAME"
     echo ""
-    info "安装完成！你可以从 Launchpad 或 /Applications/wechat2.app 启动第二个微信。"
+    info "安装完成！你可以从 Launchpad 或 $(dst_app) 启动第二个微信。"
 }
 
 do_update() {
     echo ""
 
     if ! check_dst; then
-        error "wechat2.app 不存在，请先执行安装。"
+        error "${APP_NAME}.app 不存在，请先执行安装。"
         return 1
     fi
 
     echo ""
-    step "[1/3] 删除旧的 wechat2.app..."
-    sudo rm -rf "$DST_APP"
+    step "[1/4] 删除旧的 ${APP_NAME}.app..."
+    sudo rm -rf "$(dst_app)"
     info "已删除"
 
     if ! check_src; then
         return 1
     fi
 
-    step "[2/3] 重新复制 WeChat.app..."
-    sudo cp -R "$SRC_APP" "$DST_APP"
+    step "[2/4] 重新复制 WeChat.app..."
+    sudo cp -R "$SRC_APP" "$(dst_app)"
     info "复制完成"
 
-    step "[3/3] 修改 Bundle Identifier..."
-    sudo /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$PLIST"
+    step "[3/4] 修改 Bundle Identifier..."
+    sudo /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$(plist)"
     info "标识符修改完成"
 
     step "[4/4] 重新签名应用..."
-    sudo codesign --force --deep --sign - "$DST_APP"
+    sudo codesign --force --deep --sign - "$(dst_app)"
     info "签名完成"
 
     echo ""
-    info "更新完成！wechat2.app 已刷新到最新版本。"
+    info "更新完成！${APP_NAME}.app 已刷新到最新版本。"
 }
 
 do_resign() {
     echo ""
 
     if ! check_dst; then
-        error "wechat2.app 不存在，请先执行安装。"
+        error "${APP_NAME}.app 不存在，请先执行安装。"
         return 1
     fi
 
     step "[1/2] 修改 Bundle Identifier..."
-    sudo /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$PLIST"
+    sudo /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$(plist)"
     info "标识符修改完成"
 
     step "[2/2] 重新签名应用..."
-    sudo codesign --force --deep --sign - "$DST_APP"
+    sudo codesign --force --deep --sign - "$(dst_app)"
     info "签名完成"
 
     echo ""
-    info "重新签名完成！wechat2.app 可以正常使用了。"
+    info "重新签名完成！${APP_NAME}.app 可以正常使用了。"
 }
 
 do_status() {
@@ -156,25 +190,25 @@ do_status() {
     # Check dual app
     if check_dst; then
         local dst_ver
-        dst_ver=$(plutil -extract CFBundleShortVersionString raw "$PLIST" 2>/dev/null || echo "未知")
-        info "wechat2.app 版本: $dst_ver"
+        dst_ver=$(plutil -extract CFBundleShortVersionString raw "$(plist)" 2>/dev/null || echo "未知")
+        info "${APP_NAME}.app 版本: $dst_ver"
 
         if check_bundle_id; then
             info "Bundle ID: $BUNDLE_ID (正确)"
         else
             local cur_id
-            cur_id=$(plutil -extract CFBundleIdentifier raw "$PLIST" 2>/dev/null || echo "未知")
+            cur_id=$(plutil -extract CFBundleIdentifier raw "$(plist)" 2>/dev/null || echo "未知")
             warn "Bundle ID: $cur_id (需要修改为 $BUNDLE_ID)"
         fi
 
         # Check code signature
-        if codesign -v "$DST_APP" 2>/dev/null; then
+        if codesign -v "$(dst_app)" 2>/dev/null; then
             info "代码签名: 有效"
         else
             warn "代码签名: 无效或已损坏 (需要重新签名)"
         fi
     else
-        warn "wechat2.app 未安装"
+        warn "${APP_NAME}.app 未安装"
     fi
 }
 
@@ -182,30 +216,31 @@ do_uninstall() {
     echo ""
 
     if ! check_dst; then
-        warn "wechat2.app 不存在，无需卸载。"
+        warn "${APP_NAME}.app 不存在，无需卸载。"
         return 0
     fi
 
-    read -rp "  确认卸载 wechat2.app？(y/N): " ans
+    read -rp "  确认卸载 ${APP_NAME}.app？(y/N): " ans
     [[ "${ans,,}" == "y" ]] || return 0
 
-    sudo rm -rf "$DST_APP"
-    info "wechat2.app 已卸载。"
+    sudo rm -rf "$(dst_app)"
+    info "${APP_NAME}.app 已卸载。"
 }
 
 show_menu() {
     echo -e "  ${BOLD}请选择操作:${NC}"
     echo ""
-    echo -e "  ${CYAN}1)${NC} 安装双开     首次使用，复制并配置 wechat2"
+    echo -e "  ${CYAN}1)${NC} 安装双开     首次使用，复制并配置双开微信"
     echo -e "  ${CYAN}2)${NC} 更新双开     微信更新后，重新复制并配置"
     echo -e "  ${CYAN}3)${NC} 重新签名     仅重新签名（微信更新后的快捷方式）"
-    echo -e "  ${CYAN}4)${NC} 查看状态     检查 wechat2 当前状态"
-    echo -e "  ${CYAN}5)${NC} 卸载双开     删除 wechat2.app"
+    echo -e "  ${CYAN}4)${NC} 查看状态     检查双开微信当前状态"
+    echo -e "  ${CYAN}5)${NC} 卸载双开     删除双开微信"
     echo -e "  ${CYAN}0)${NC} 退出"
     echo ""
 }
 
 main() {
+    load_name
     while true; do
         banner
         do_status

@@ -76,13 +76,13 @@ get_bundle_id() {
     fi
 }
 
-# 从配置记录中获取下一个可用编号
+# 从配置记录中获取下一个可用编号（进阶多开使用 wc 前缀）
 find_next_number() {
     local max_num=1
     if [[ -f "$CONF" ]]; then
         while IFS= read -r line; do
             local name="${line%%:*}"
-            if [[ "$name" =~ ^wechat([0-9]+)$ ]]; then
+            if [[ "$name" =~ ^wc([0-9]+)$ ]]; then
                 local n="${BASH_REMATCH[1]}"
                 [[ $n -ge $max_num ]] && max_num=$((n + 1))
             fi
@@ -204,7 +204,7 @@ do_multi_install() {
     next_num=$(find_next_number)
     bundle_id=$(gen_bundle_id "$next_num")
 
-    local default_name="wechat${next_num}"
+    local default_name="wc${next_num}"
     info "检测到下一个可用编号: $next_num"
     info "将使用应用名: ${default_name}，Bundle ID: $bundle_id"
     echo ""
@@ -214,7 +214,7 @@ do_multi_install() {
     APP_NAME="$name"
 
     # 用户自定义名称时，需要分配一个 bundle ID
-    if [[ ! "$name" =~ ^wechat([0-9]+)$ ]]; then
+    if [[ ! "$name" =~ ^wc([0-9]+)$ ]]; then
         bundle_id="${BUNDLE_ID_PREFIX}.${name}"
     elif [[ "$name" != "$default_name" ]]; then
         local user_num="${BASH_REMATCH[1]}"

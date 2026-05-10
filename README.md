@@ -62,9 +62,9 @@ sudo ln -sf /path/to/wechat-dual.sh /usr/local/bin/wechat-dual
 
 | 实例 | 应用名 | Bundle ID |
 |------|--------|-----------|
-| 第1个 | wechat2 | com.fring.wechat |
-| 第2个 | wechat3 | com.fring.wechat2 |
-| 第3个 | wechat4 | com.fring.wechat3 |
+| 默认双开 | wechat2 | com.fring.wechat |
+| 进阶第2个 | wc1 | com.fring.wechat2 |
+| 进阶第3个 | wc2 | com.fring.wechat3 |
 
 ### 2) 修复双开
 

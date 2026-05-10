@@ -163,6 +163,8 @@ do_install() {
 
 do_multi_install() {
     echo ""
+    info "安装多个双开实例（仅供学习调试）"
+    echo ""
     echo -e "  ${YELLOW}╔═══════════════════════════════════════════════╗${NC}"
     echo -e "  ${YELLOW}║  免责声明                                     ║${NC}"
     echo -e "  ${YELLOW}║                                               ║${NC}"
@@ -320,7 +322,7 @@ show_menu() {
     echo -e "  ${CYAN}2)${NC} 修复双开     双开微信自行更新后，重新设置标识符并签名"
     echo -e "  ${CYAN}3)${NC} 查看状态     检查双开微信当前状态"
     echo -e "  ${CYAN}4)${NC} 卸载双开     删除双开微信"
-    echo -e "  ${CYAN}5)${NC} 多开安装     进阶：安装多个双开实例（仅供学习调试）"
+    echo -e "  ${CYAN}5)${NC} 进阶更多"
     echo -e "  ${CYAN}0)${NC} 退出"
     echo ""
 }

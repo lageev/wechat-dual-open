@@ -42,7 +42,7 @@ sudo ln -sf /path/to/wechat-dual.sh /usr/local/bin/wechat-dual
   2) 修复双开     双开微信自行更新后，重新设置标识符并签名
   3) 查看状态     检查双开微信当前状态
   4) 卸载双开     删除双开微信
-  5) 多开安装     进阶：安装多个双开实例（仅供学习调试）
+  5) 进阶更多
   0) 退出
 ```
 
@@ -54,7 +54,7 @@ sudo ln -sf /path/to/wechat-dual.sh /usr/local/bin/wechat-dual
 2. 修改 `CFBundleIdentifier` 为 `com.fring.wechat` 避免进程冲突
 3. 重新签名应用绕过系统验证
 
-### 5) 多开安装（进阶）
+### 5) 进阶更多
 
 > **免责声明：** 多开功能仅供学习调试使用。使用本功能可能导致微信客户端数据变动、账号异常或本机环境变化，一切后果由用户自行承担。
 

@@ -31,18 +31,35 @@ warn()    { echo -e "  ${YELLOW}[!]${NC} $1"; }
 error()   { echo -e "  ${RED}[✗]${NC} $1"; }
 step()    { echo -e "  ${CYAN}[→]${NC} $1"; }
 
-# 读取已保存的应用名
+# 读取已保存的应用名（取最后一条记录）
 load_name() {
     if [[ -f "$CONF" ]]; then
-        APP_NAME=$(cat "$CONF")
+        APP_NAME=$(tail -1 "$CONF")
     else
         APP_NAME="wechat2"
     fi
 }
 
-# 保存应用名到配置文件
+# 保存应用名到配置文件（追加）
 save_name() {
-    echo "$1" > "$CONF"
+    echo "$1" >> "$CONF"
+}
+
+# 读取所有已安装的实例名
+load_instances() {
+    if [[ -f "$CONF" ]]; then
+        cat "$CONF"
+    fi
+}
+
+# 检查名称是否已存在于配置中
+name_exists() {
+    local name="$1"
+    if [[ -f "$CONF" ]]; then
+        grep -qx "$name" "$CONF"
+    else
+        return 1
+    fi
 }
 
 dst_app() {
@@ -76,23 +93,16 @@ check_dst() {
     [[ -d "$(dst_app)" ]]
 }
 
-# 扫描已安装的双开实例，返回下一个可用编号
+# 从配置记录中获取下一个可用编号
 find_next_number() {
     local max_num=1
-    for app in /Applications/*.app; do
-        [[ -d "$app" ]] || continue
-        local plist_file="$app/Contents/Info.plist"
-        [[ -f "$plist_file" ]] || continue
-        local bid
-        bid=$(plutil -extract CFBundleIdentifier raw "$plist_file" 2>/dev/null || echo "")
-        # 匹配 com.fring.wechat（无后缀视为1）或 com.fring.wechatN
-        if [[ "$bid" == "$BUNDLE_ID_PREFIX" ]]; then
-            [[ 1 -gt $max_num ]] && max_num=1
-        elif [[ "$bid" =~ ^${BUNDLE_ID_PREFIX}([0-9]+)$ ]]; then
+    while IFS= read -r name; do
+        [[ -z "$name" ]] && continue
+        if [[ "$name" =~ ^wechat([0-9]+)$ ]]; then
             local n="${BASH_REMATCH[1]}"
             [[ $n -ge $max_num ]] && max_num=$((n + 1))
         fi
-    done
+    done < <(load_instances)
     echo "$max_num"
 }
 
@@ -138,8 +148,8 @@ do_install() {
     APP_NAME="wechat2"
     local bundle_id="$BUNDLE_ID_PREFIX"
 
-    if check_dst; then
-        warn "$(dst_app) 已存在，无需重复安装。"
+    if name_exists "$APP_NAME"; then
+        warn "${APP_NAME} 已存在于安装记录中，无需重复安装。"
         return 0
     fi
 
@@ -169,9 +179,10 @@ do_multi_install() {
     echo -e "  ${YELLOW}║  免责声明                                     ║${NC}"
     echo -e "  ${YELLOW}║                                               ║${NC}"
     echo -e "  ${YELLOW}║  多开功能仅供学习调试使用。                    ║${NC}"
-    echo -e "  ${YELLOW}║  使用本功能可能导致微信客户端数据变动、        ║${NC}"
-    echo -e "  ${YELLOW}║  账号异常或本机环境变化，一切后果由用户        ║${NC}"
-    echo -e "  ${YELLOW}║  自行承担。                                   ║${NC}"
+    echo -e "  ${YELLOW}║  双开（2个实例）的稳定性已经过验证，           ║${NC}"
+    echo -e "  ${YELLOW}║  更多数量可能存在无法预知的风险，              ║${NC}"
+    echo -e "  ${YELLOW}║  包括客户端数据异常、账号风险等，              ║${NC}"
+    echo -e "  ${YELLOW}║  请自行验证并承担后果。                        ║${NC}"
     echo -e "  ${YELLOW}║                                               ║${NC}"
     echo -e "  ${YELLOW}║  继续即表示您已了解并接受上述风险。            ║${NC}"
     echo -e "  ${YELLOW}╚═══════════════════════════════════════════════╝${NC}"
@@ -203,12 +214,15 @@ do_multi_install() {
         bundle_id=$(get_bundle_id_for_number "$user_num")
     fi
 
-    if check_dst; then
-        warn "$(dst_app) 已存在。"
+    if name_exists "$name"; then
+        warn "名称 '$name' 已存在于安装记录中。"
         read -rp "  是否覆盖？(y/N): " ans2
         [[ "$(echo "$ans2" | tr '[:upper:]' '[:lower:]')" == "y" ]] || return 0
         step "删除旧的 ${APP_NAME}.app..."
         sudo rm -rf "$(dst_app)"
+        # 从配置中移除旧记录
+        local tmp_conf="${CONF}.tmp"
+        grep -v "^${name}$" "$CONF" > "$tmp_conf" 2>/dev/null && mv "$tmp_conf" "$CONF"
     fi
 
     echo ""

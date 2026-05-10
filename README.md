@@ -53,13 +53,22 @@ sudo ln -sf /path/to/wechat-dual.sh /usr/local/bin/wechat-dual
 2. 修改 `CFBundleIdentifier` 避免进程冲突
 3. 重新签名应用绕过系统验证
 
-安装时可以自定义双开应用的名称，直接回车则使用默认名称 `wechat2`：
+支持安装多个双开实例，脚本会自动检测已有的双开应用并递增编号，避免相互覆盖：
+
+| 实例 | 应用名 | Bundle ID |
+|------|--------|-----------|
+| 第1个 | wechat2 | com.fring.wechat |
+| 第2个 | wechat3 | com.fring.wechat2 |
+| 第3个 | wechat4 | com.fring.wechat3 |
+
+安装时可以自定义名称，直接回车则使用自动递增的默认名称：
 
 ```
+检测到下一个可用编号: 2
+将使用应用名: wechat2，Bundle ID: com.fring.wechat
+
 为双开微信取个名字（直接回车使用默认名称 wechat2）:
 ```
-
-例如输入 `wechat-work`，将会创建 `/Applications/wechat-work.app`。
 
 ### 2) 修复双开
 
@@ -84,7 +93,7 @@ sudo ln -sf /path/to/wechat-dual.sh /usr/local/bin/wechat-dual
 macOS 通过 `CFBundleIdentifier` 识别应用，同一个标识符只能运行一个实例。本工具通过以下方式实现双开：
 
 1. **复制应用** — 将 `WeChat.app` 完整复制一份
-2. **修改标识符** — 将副本的 `CFBundleIdentifier` 改为不同的值（如 `com.fring.wechat`）
+2. **修改标识符** — 将副本的 `CFBundleIdentifier` 改为不同的值（如 `com.fring.wechat`、`com.fring.wechat2`...），自动递增避免冲突
 3. **重新签名** — 修改后的应用签名失效，需要重新签名才能正常运行
 
 ## 配置文件

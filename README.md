@@ -42,6 +42,7 @@ sudo ln -sf /path/to/wechat-dual.sh /usr/local/bin/wechat-dual
   2) 修复双开     双开微信自行更新后，重新设置标识符并签名
   3) 查看状态     检查双开微信当前状态
   4) 卸载双开     删除双开微信
+  5) 多开安装     进阶：安装多个双开实例（仅供学习调试）
   0) 退出
 ```
 
@@ -49,26 +50,21 @@ sudo ln -sf /path/to/wechat-dual.sh /usr/local/bin/wechat-dual
 
 首次使用，执行完整的三步配置：
 
-1. 复制 `WeChat.app` 为双开应用
-2. 修改 `CFBundleIdentifier` 避免进程冲突
+1. 复制 `WeChat.app` 为 `wechat2.app`
+2. 修改 `CFBundleIdentifier` 为 `com.fring.wechat` 避免进程冲突
 3. 重新签名应用绕过系统验证
 
-支持安装多个双开实例，脚本会自动检测已有的双开应用并递增编号，避免相互覆盖：
+### 5) 多开安装（进阶）
+
+> **免责声明：** 多开功能仅供学习调试使用。使用本功能可能导致微信客户端数据变动、账号异常或本机环境变化，一切后果由用户自行承担。
+
+在已有一个双开的基础上，支持安装更多实例，自动递增编号避免冲突：
 
 | 实例 | 应用名 | Bundle ID |
 |------|--------|-----------|
 | 第1个 | wechat2 | com.fring.wechat |
 | 第2个 | wechat3 | com.fring.wechat2 |
 | 第3个 | wechat4 | com.fring.wechat3 |
-
-安装时可以自定义名称，直接回车则使用自动递增的默认名称：
-
-```
-检测到下一个可用编号: 2
-将使用应用名: wechat2，Bundle ID: com.fring.wechat
-
-为双开微信取个名字（直接回车使用默认名称 wechat2）:
-```
 
 ### 2) 修复双开
 

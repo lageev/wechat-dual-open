@@ -135,6 +135,53 @@ do_install() {
         return 1
     fi
 
+    APP_NAME="wechat2"
+    local bundle_id="$BUNDLE_ID_PREFIX"
+
+    if check_dst; then
+        warn "$(dst_app) 已存在，无需重复安装。"
+        return 0
+    fi
+
+    echo ""
+    step "[1/3] 复制 WeChat.app → ${APP_NAME}.app ..."
+    sudo cp -R "$SRC_APP" "$(dst_app)"
+    info "复制完成"
+
+    step "[2/3] 修改 Bundle Identifier → $bundle_id ..."
+    sudo /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $bundle_id" "$(plist)"
+    info "标识符修改完成"
+
+    step "[3/3] 重新签名应用..."
+    sudo codesign --force --deep --sign - "$(dst_app)"
+    info "签名完成"
+
+    save_name "$APP_NAME"
+    echo ""
+    info "安装完成！你可以从 Launchpad 或 $(dst_app) 启动第二个微信。"
+}
+
+do_multi_install() {
+    echo ""
+    echo -e "  ${YELLOW}╔═══════════════════════════════════════════════╗${NC}"
+    echo -e "  ${YELLOW}║  免责声明                                     ║${NC}"
+    echo -e "  ${YELLOW}║                                               ║${NC}"
+    echo -e "  ${YELLOW}║  多开功能仅供学习调试使用。                    ║${NC}"
+    echo -e "  ${YELLOW}║  使用本功能可能导致微信客户端数据变动、        ║${NC}"
+    echo -e "  ${YELLOW}║  账号异常或本机环境变化，一切后果由用户        ║${NC}"
+    echo -e "  ${YELLOW}║  自行承担。                                   ║${NC}"
+    echo -e "  ${YELLOW}║                                               ║${NC}"
+    echo -e "  ${YELLOW}║  继续即表示您已了解并接受上述风险。            ║${NC}"
+    echo -e "  ${YELLOW}╚═══════════════════════════════════════════════╝${NC}"
+    echo ""
+    read -rp "  是否继续？(y/N): " ans
+    [[ "$(echo "$ans" | tr '[:upper:]' '[:lower:]')" == "y" ]] || return 0
+
+    echo ""
+    if ! check_src; then
+        return 1
+    fi
+
     local next_num bundle_id
     next_num=$(find_next_number)
     bundle_id=$(get_bundle_id_for_number "$next_num")
@@ -156,8 +203,8 @@ do_install() {
 
     if check_dst; then
         warn "$(dst_app) 已存在。"
-        read -rp "  是否覆盖？(y/N): " ans
-        [[ "$(echo "$ans" | tr '[:upper:]' '[:lower:]')" == "y" ]] || return 0
+        read -rp "  是否覆盖？(y/N): " ans2
+        [[ "$(echo "$ans2" | tr '[:upper:]' '[:lower:]')" == "y" ]] || return 0
         step "删除旧的 ${APP_NAME}.app..."
         sudo rm -rf "$(dst_app)"
     fi
@@ -177,7 +224,7 @@ do_install() {
 
     save_name "$APP_NAME"
     echo ""
-    info "安装完成！你可以从 Launchpad 或 $(dst_app) 启动第二个微信。"
+    info "安装完成！你可以从 Launchpad 或 $(dst_app) 启动双开微信。"
 }
 
 do_resign() {
@@ -273,6 +320,7 @@ show_menu() {
     echo -e "  ${CYAN}2)${NC} 修复双开     双开微信自行更新后，重新设置标识符并签名"
     echo -e "  ${CYAN}3)${NC} 查看状态     检查双开微信当前状态"
     echo -e "  ${CYAN}4)${NC} 卸载双开     删除双开微信"
+    echo -e "  ${CYAN}5)${NC} 多开安装     进阶：安装多个双开实例（仅供学习调试）"
     echo -e "  ${CYAN}0)${NC} 退出"
     echo ""
 }
@@ -284,12 +332,13 @@ main() {
         do_status
         echo ""
         show_menu
-        read -rp "  输入选项 [0-4]: " choice
+        read -rp "  输入选项 [0-5]: " choice
         case "${choice}" in
             1) do_install ;;
             2) do_resign ;;
             3) do_status ;;
             4) do_uninstall ;;
+            5) do_multi_install ;;
             0) echo ""; info "再见！"; exit 0 ;;
             *) warn "无效选项" ;;
         esac

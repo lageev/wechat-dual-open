@@ -251,6 +251,20 @@ do_multi_install() {
 do_resign() {
     echo ""
 
+    # 默认锁定 Bundle ID 为 com.fring.wechat 的标准双开实例（且应用存在）
+    if [[ -f "$CONF" ]]; then
+        local line n b
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            [[ -z "$line" ]] && continue
+            n="${line%%:*}"
+            b="${line#*:}"
+            if [[ "$b" == "$BUNDLE_ID_PREFIX" && -d "/Applications/${n}.app" ]]; then
+                APP_NAME="$n"
+                break
+            fi
+        done < "$CONF"
+    fi
+
     if ! check_dst; then
         error "${APP_NAME}.app 不存在，请先执行安装。"
         return 1
@@ -279,43 +293,93 @@ do_resign() {
     info "修复完成！${APP_NAME}.app 可以正常使用了。"
 }
 
+# 自动收编磁盘上 Bundle ID 合规、但配置中尚未记录的双开实例（兼容旧版本残留）
+register_orphans() {
+    shopt -s nullglob
+    local app p bid base name
+    for app in /Applications/*.app; do
+        [[ "$app" == "$SRC_APP" ]] && continue
+        p="$app/Contents/Info.plist"
+        [[ -f "$p" ]] || continue
+        bid=$(plutil -extract CFBundleIdentifier raw "$p" 2>/dev/null || echo "")
+        [[ "$bid" == "$BUNDLE_ID_PREFIX"* ]] || continue
+        if [[ -f "$CONF" ]] && grep -q ":${bid}$" "$CONF"; then
+            continue
+        fi
+        base="${app##*/}"
+        name="${base%.app}"
+        save_instance "$name" "$bid"
+    done
+    shopt -u nullglob
+}
+
+# 显示单个已存在双开实例的状态（一行主信息，必要时第二行展示 Bundle ID）
+print_instance_status() {
+    local name="$1"
+    local app="/Applications/${name}.app"
+    local p="$app/Contents/Info.plist"
+
+    local ver cur_id expected_id sig_ok=1 bid_state="ok"
+    ver=$(plutil -extract CFBundleShortVersionString raw "$p" 2>/dev/null || echo "未知")
+    cur_id=$(plutil -extract CFBundleIdentifier raw "$p" 2>/dev/null || echo "未知")
+    expected_id=$(get_bundle_id "$name")
+
+    [[ -n "$expected_id" && "$cur_id" != "$expected_id" ]] && bid_state="mismatch"
+    codesign -v "$app" 2>/dev/null || sig_ok=0
+
+    local issues="" sep=""
+    [[ "$bid_state" == "mismatch" ]] && { issues+="${sep}Bundle ID 待修复"; sep=" · "; }
+    [[ $sig_ok -eq 0 ]]              && { issues+="${sep}签名失效";         sep=" · "; }
+
+    local head
+    head=$(printf '%-22s v%s' "${name}.app" "$ver")
+
+    if [[ -z "$issues" ]]; then
+        info "$head"
+    else
+        warn "${head}   ${issues}"
+        if [[ "$bid_state" == "mismatch" ]]; then
+            echo -e "         ${YELLOW}└─${NC} 当前 Bundle ID: ${cur_id}  (应为 ${expected_id})"
+        fi
+    fi
+}
+
 do_status() {
     echo ""
 
-    # Check source app
     if check_src; then
         local src_ver
         src_ver=$(plutil -extract CFBundleShortVersionString raw "/Applications/WeChat.app/Contents/Info.plist" 2>/dev/null || echo "未知")
-        info "WeChat.app  版本: $src_ver"
+        info "$(printf '%-22s v%s' 'WeChat.app' "$src_ver")   原版"
     else
         error "WeChat.app 未安装"
     fi
 
-    # Check dual app
-    if check_dst; then
-        local dst_ver
-        dst_ver=$(plutil -extract CFBundleShortVersionString raw "$(plist)" 2>/dev/null || echo "未知")
-        info "${APP_NAME}.app 版本: $dst_ver"
+    local present_count=0 missing_list=""
+    if [[ -f "$CONF" ]]; then
+        local line name
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            [[ -z "$line" ]] && continue
+            name="${line%%:*}"
+            if [[ -d "/Applications/${name}.app" ]]; then
+                present_count=$((present_count + 1))
+                print_instance_status "$name"
+            else
+                missing_list+="${name}"$'\n'
+            fi
+        done < "$CONF"
+    fi
 
-        local cur_id expected_id
-        cur_id=$(plutil -extract CFBundleIdentifier raw "$(plist)" 2>/dev/null || echo "未知")
-        expected_id=$(get_bundle_id "$APP_NAME")
-        if [[ -n "$expected_id" && "$cur_id" == "$expected_id" ]]; then
-            info "Bundle ID: $cur_id (正确)"
-        elif [[ -n "$expected_id" ]]; then
-            warn "Bundle ID: $cur_id (应为 $expected_id，需修复)"
-        else
-            warn "Bundle ID: $cur_id (配置中无记录)"
-        fi
+    if [[ -n "$missing_list" ]]; then
+        local m
+        while IFS= read -r m; do
+            [[ -z "$m" ]] && continue
+            error "$(printf '%-22s' "${m}.app") 已删除  (配置残留，建议清理)"
+        done <<< "${missing_list%$'\n'}"
+    fi
 
-        # Check code signature
-        if codesign -v "$(dst_app)" 2>/dev/null; then
-            info "代码签名: 有效"
-        else
-            warn "代码签名: 无效或已损坏 (需要重新签名)"
-        fi
-    else
-        warn "${APP_NAME}.app 未安装"
+    if [[ $present_count -eq 0 && -z "$missing_list" ]]; then
+        warn "未发现双开微信实例"
     fi
 }
 
@@ -335,6 +399,52 @@ do_uninstall() {
     info "${APP_NAME}.app 已卸载，配置记录已清除。"
 }
 
+# 清理 CONF 中应用已不存在的残留记录（即状态里 [✗] 那一类）
+do_cleanup() {
+    echo ""
+
+    if [[ ! -f "$CONF" ]]; then
+        info "配置文件不存在，无需清理。"
+        return 0
+    fi
+
+    local removed="" tmp="${CONF}.tmp"
+    : > "$tmp"
+    local line name
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ -z "$line" ]] && continue
+        name="${line%%:*}"
+        if [[ -d "/Applications/${name}.app" ]]; then
+            echo "$line" >> "$tmp"
+        else
+            removed+="${name}"$'\n'
+        fi
+    done < "$CONF"
+
+    if [[ -z "$removed" ]]; then
+        rm -f "$tmp"
+        info "未发现配置残留，无需清理。"
+        return 0
+    fi
+
+    warn "以下配置记录将被清除（应用已不存在）："
+    local r
+    while IFS= read -r r; do
+        [[ -z "$r" ]] && continue
+        echo -e "      ${YELLOW}-${NC} ${r}.app"
+    done <<< "${removed%$'\n'}"
+    echo ""
+    read -rp "  确认清理？(y/N): " ans
+    if [[ "$(echo "$ans" | tr '[:upper:]' '[:lower:]')" != "y" ]]; then
+        rm -f "$tmp"
+        warn "已取消"
+        return 0
+    fi
+
+    mv "$tmp" "$CONF"
+    info "清理完成。"
+}
+
 show_menu() {
     echo -e "  ${BOLD}请选择操作:${NC}"
     echo ""
@@ -342,25 +452,28 @@ show_menu() {
     echo -e "  ${CYAN}2)${NC} 修复双开     双开微信自行更新后，重新设置标识符并签名"
     echo -e "  ${CYAN}3)${NC} 查看状态     检查双开微信当前状态"
     echo -e "  ${CYAN}4)${NC} 卸载双开     删除双开微信"
-    echo -e "  ${CYAN}5)${NC} 进阶更多"
+    echo -e "  ${CYAN}5)${NC} 清理残留     清除已删除应用的配置记录"
+    echo -e "  ${CYAN}6)${NC} 进阶更多"
     echo -e "  ${CYAN}0)${NC} 退出"
     echo ""
 }
 
 main() {
+    register_orphans
     load_name
     while true; do
         banner
         do_status
         echo ""
         show_menu
-        read -rp "  输入选项 [0-5]: " choice
+        read -rp "  输入选项 [0-6]: " choice
         case "${choice}" in
             1) do_install ;;
             2) do_resign ;;
             3) do_status ;;
             4) do_uninstall ;;
-            5) do_multi_install ;;
+            5) do_cleanup ;;
+            6) do_multi_install ;;
             0) echo ""; info "再见！"; exit 0 ;;
             *) warn "无效选项" ;;
         esac

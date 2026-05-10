@@ -31,24 +31,28 @@ warn()    { echo -e "  ${YELLOW}[!]${NC} $1"; }
 error()   { echo -e "  ${RED}[✗]${NC} $1"; }
 step()    { echo -e "  ${CYAN}[→]${NC} $1"; }
 
-# 读取已保存的应用名（取最后一条记录）
+# 读取最后一条记录的应用名（向后兼容旧格式）
 load_name() {
     if [[ -f "$CONF" ]]; then
-        APP_NAME=$(tail -1 "$CONF")
+        local last_line
+        last_line=$(tail -1 "$CONF")
+        APP_NAME="${last_line%%:*}"
     else
         APP_NAME="wechat2"
     fi
 }
 
-# 保存应用名到配置文件（追加）
-save_name() {
-    echo "$1" >> "$CONF"
+# 保存实例记录（追加 name:bundleID）
+save_instance() {
+    echo "${1}:${2}" >> "$CONF"
 }
 
-# 读取所有已安装的实例名
-load_instances() {
+# 删除实例记录
+remove_instance() {
+    local name="$1"
     if [[ -f "$CONF" ]]; then
-        cat "$CONF"
+        local tmp="${CONF}.tmp"
+        grep -v "^${name}:" "$CONF" > "$tmp" 2>/dev/null && mv "$tmp" "$CONF"
     fi
 }
 
@@ -56,10 +60,35 @@ load_instances() {
 name_exists() {
     local name="$1"
     if [[ -f "$CONF" ]]; then
-        grep -qx "$name" "$CONF"
+        grep -q "^${name}:" "$CONF"
     else
         return 1
     fi
+}
+
+# 根据名称获取 bundle ID
+get_bundle_id() {
+    local name="$1"
+    if [[ -f "$CONF" ]]; then
+        local line
+        line=$(grep "^${name}:" "$CONF" | head -1)
+        echo "${line#*:}"
+    fi
+}
+
+# 从配置记录中获取下一个可用编号
+find_next_number() {
+    local max_num=1
+    if [[ -f "$CONF" ]]; then
+        while IFS= read -r line; do
+            local name="${line%%:*}"
+            if [[ "$name" =~ ^wechat([0-9]+)$ ]]; then
+                local n="${BASH_REMATCH[1]}"
+                [[ $n -ge $max_num ]] && max_num=$((n + 1))
+            fi
+        done < "$CONF"
+    fi
+    echo "$max_num"
 }
 
 dst_app() {
@@ -93,38 +122,13 @@ check_dst() {
     [[ -d "$(dst_app)" ]]
 }
 
-# 从配置记录中获取下一个可用编号
-find_next_number() {
-    local max_num=1
-    while IFS= read -r name; do
-        [[ -z "$name" ]] && continue
-        if [[ "$name" =~ ^wechat([0-9]+)$ ]]; then
-            local n="${BASH_REMATCH[1]}"
-            [[ $n -ge $max_num ]] && max_num=$((n + 1))
-        fi
-    done < <(load_instances)
-    echo "$max_num"
-}
-
 # 根据编号生成 bundle ID
-get_bundle_id_for_number() {
+gen_bundle_id() {
     local num=$1
     if [[ $num -eq 1 ]]; then
         echo "$BUNDLE_ID_PREFIX"
     else
         echo "${BUNDLE_ID_PREFIX}${num}"
-    fi
-}
-
-# 根据 app name 推算 bundle ID（更新后 bundle ID 被覆盖时使用）
-infer_bundle_id_from_name() {
-    local name="$1"
-    if [[ "$name" =~ ^wechat([0-9]+)$ ]]; then
-        local num="${BASH_REMATCH[1]}"
-        get_bundle_id_for_number "$num"
-    else
-        # 自定义名称，无法推算，使用配置文件中的记录
-        echo ""
     fi
 }
 
@@ -134,9 +138,10 @@ check_bundle_id() {
     if [[ ! -f "$p" ]]; then
         return 1
     fi
-    local current
+    local current expected
     current=$(plutil -extract CFBundleIdentifier raw "$p" 2>/dev/null || echo "")
-    [[ "$current" == "${BUNDLE_ID_PREFIX}" || "$current" =~ ^${BUNDLE_ID_PREFIX}[0-9]+$ ]]
+    expected=$(get_bundle_id "$APP_NAME")
+    [[ "$current" == "$expected" ]]
 }
 
 do_install() {
@@ -166,7 +171,7 @@ do_install() {
     sudo codesign --force --deep --sign - "$(dst_app)"
     info "签名完成"
 
-    save_name "$APP_NAME"
+    save_instance "$APP_NAME" "$bundle_id"
     echo ""
     info "安装完成！你可以从 Launchpad 或 $(dst_app) 启动第二个微信。"
 }
@@ -197,7 +202,7 @@ do_multi_install() {
 
     local next_num bundle_id
     next_num=$(find_next_number)
-    bundle_id=$(get_bundle_id_for_number "$next_num")
+    bundle_id=$(gen_bundle_id "$next_num")
 
     local default_name="wechat${next_num}"
     info "检测到下一个可用编号: $next_num"
@@ -208,10 +213,12 @@ do_multi_install() {
     name=$(ask_name "$default_name")
     APP_NAME="$name"
 
-    # 根据用户输入的名字推算 bundle ID
-    if [[ "$name" =~ ^wechat([0-9]+)$ ]]; then
+    # 用户自定义名称时，需要分配一个 bundle ID
+    if [[ ! "$name" =~ ^wechat([0-9]+)$ ]]; then
+        bundle_id="${BUNDLE_ID_PREFIX}.${name}"
+    elif [[ "$name" != "$default_name" ]]; then
         local user_num="${BASH_REMATCH[1]}"
-        bundle_id=$(get_bundle_id_for_number "$user_num")
+        bundle_id=$(gen_bundle_id "$user_num")
     fi
 
     if name_exists "$name"; then
@@ -220,9 +227,7 @@ do_multi_install() {
         [[ "$(echo "$ans2" | tr '[:upper:]' '[:lower:]')" == "y" ]] || return 0
         step "删除旧的 ${APP_NAME}.app..."
         sudo rm -rf "$(dst_app)"
-        # 从配置中移除旧记录
-        local tmp_conf="${CONF}.tmp"
-        grep -v "^${name}$" "$CONF" > "$tmp_conf" 2>/dev/null && mv "$tmp_conf" "$CONF"
+        remove_instance "$name"
     fi
 
     echo ""
@@ -238,7 +243,7 @@ do_multi_install() {
     sudo codesign --force --deep --sign - "$(dst_app)"
     info "签名完成"
 
-    save_name "$APP_NAME"
+    save_instance "$APP_NAME" "$bundle_id"
     echo ""
     info "安装完成！你可以从 Launchpad 或 $(dst_app) 启动双开微信。"
 }
@@ -251,22 +256,19 @@ do_resign() {
         return 1
     fi
 
-    local current_bid expected_bid
+    local expected_bid current_bid
+    expected_bid=$(get_bundle_id "$APP_NAME")
     current_bid=$(plutil -extract CFBundleIdentifier raw "$(plist)" 2>/dev/null || echo "")
 
-    if [[ "$current_bid" == "${BUNDLE_ID_PREFIX}" || "$current_bid" =~ ^${BUNDLE_ID_PREFIX}[0-9]+$ ]]; then
+    if [[ -z "$expected_bid" ]]; then
+        warn "配置中未找到 ${APP_NAME} 的记录，仅重新签名"
+    elif [[ "$current_bid" == "$expected_bid" ]]; then
         info "Bundle ID 正常: $current_bid"
     else
-        # 更新后 bundle ID 被覆盖，根据 app name 推算并修复
-        expected_bid=$(infer_bundle_id_from_name "$APP_NAME")
-        if [[ -n "$expected_bid" ]]; then
-            warn "Bundle ID 被覆盖为: $current_bid"
-            step "恢复 Bundle Identifier → $expected_bid ..."
-            sudo /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $expected_bid" "$(plist)"
-            info "标识符已恢复"
-        else
-            warn "无法推算正确的 Bundle ID（应用名非默认格式），仅重新签名"
-        fi
+        warn "Bundle ID 不匹配: 当前 $current_bid，应为 $expected_bid"
+        step "恢复 Bundle Identifier → $expected_bid ..."
+        sudo /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $expected_bid" "$(plist)"
+        info "标识符已恢复"
     fi
 
     step "重新签名应用..."
@@ -295,12 +297,15 @@ do_status() {
         dst_ver=$(plutil -extract CFBundleShortVersionString raw "$(plist)" 2>/dev/null || echo "未知")
         info "${APP_NAME}.app 版本: $dst_ver"
 
-        local cur_id
+        local cur_id expected_id
         cur_id=$(plutil -extract CFBundleIdentifier raw "$(plist)" 2>/dev/null || echo "未知")
-        if check_bundle_id; then
+        expected_id=$(get_bundle_id "$APP_NAME")
+        if [[ -n "$expected_id" && "$cur_id" == "$expected_id" ]]; then
             info "Bundle ID: $cur_id (正确)"
+        elif [[ -n "$expected_id" ]]; then
+            warn "Bundle ID: $cur_id (应为 $expected_id，需修复)"
         else
-            warn "Bundle ID: $cur_id (需要修复)"
+            warn "Bundle ID: $cur_id (配置中无记录)"
         fi
 
         # Check code signature
@@ -326,7 +331,8 @@ do_uninstall() {
     [[ "$(echo "$ans" | tr '[:upper:]' '[:lower:]')" == "y" ]] || return 0
 
     sudo rm -rf "$(dst_app)"
-    info "${APP_NAME}.app 已卸载。"
+    remove_instance "$APP_NAME"
+    info "${APP_NAME}.app 已卸载，配置记录已清除。"
 }
 
 show_menu() {

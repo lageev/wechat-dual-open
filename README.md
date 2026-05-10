@@ -94,7 +94,14 @@ macOS 通过 `CFBundleIdentifier` 识别应用，同一个标识符只能运行�
 
 ## 配置文件
 
-双开应用名称保存在 `~/.wechat-dual.conf` 中，后续操作（修复签名、卸载）会自动读取，无需重复输入。
+双开实例信息保存在 `~/.wechat-dual.conf` 中，每行格式为 `应用名:BundleID`：
+
+```
+wechat2:com.fring.wechat
+wechat3:com.fring.wechat2
+```
+
+修复双开和卸载时会自动读取配置，无需重复输入。
 
 ## 注意事项
 

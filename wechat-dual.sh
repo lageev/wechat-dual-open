@@ -47,6 +47,18 @@ save_instance() {
     echo "${1}:${2}" >> "$CONF"
 }
 
+# 更新实例记录（替换同名记录，不存在则追加）
+set_instance() {
+    local name="$1"
+    local bundle_id="$2"
+    if [[ -f "$CONF" ]]; then
+        local tmp="${CONF}.tmp"
+        awk -F: -v name="$name" '$1 != name { print }' "$CONF" > "$tmp"
+        mv "$tmp" "$CONF"
+    fi
+    save_instance "$name" "$bundle_id"
+}
+
 # 删除实例记录
 remove_instance() {
     local name="$1"
@@ -144,6 +156,31 @@ check_bundle_id() {
     [[ "$current" == "$expected" ]]
 }
 
+choose_bundle_id() {
+    local old_bid="$1"
+    local new_bid="$2"
+    local old_desc="$3"
+    local new_desc="$4"
+    local ans
+
+    warn "检测到 Bundle ID 不一致，请选择要使用的 ID："
+    echo "         1) ${old_desc}: ${old_bid:-未知}"
+    echo "         2) ${new_desc}: ${new_bid:-未知}"
+
+    if [[ -z "$new_bid" ]]; then
+        warn "当前应用 Bundle ID 为空，无法选择新 ID。"
+        CHOSEN_BUNDLE_ID="$old_bid"
+        return 0
+    fi
+
+    read -rp "  请选择 [1/2]（默认 1）: " ans
+    if [[ "$ans" == "2" ]]; then
+        CHOSEN_BUNDLE_ID="$new_bid"
+    else
+        CHOSEN_BUNDLE_ID="$old_bid"
+    fi
+}
+
 do_install() {
     echo ""
     if ! check_src; then
@@ -155,6 +192,12 @@ do_install() {
 
     if name_exists "$APP_NAME"; then
         warn "${APP_NAME} 已存在于安装记录中，无需重复安装。"
+        return 0
+    fi
+
+    if check_dst; then
+        warn "${APP_NAME}.app 已存在但未被本脚本管理（可能是此前自行双开的）。"
+        echo "         请使用菜单的【修复双开】接管现有应用，避免覆盖丢失数据。"
         return 0
     fi
 
@@ -252,6 +295,7 @@ do_resign() {
     echo ""
 
     # 默认锁定 Bundle ID 为 com.fring.wechat 的标准双开实例（且应用存在）
+    local found_standard=0
     if [[ -f "$CONF" ]]; then
         local line n b
         while IFS= read -r line || [[ -n "$line" ]]; do
@@ -260,9 +304,14 @@ do_resign() {
             b="${line#*:}"
             if [[ "$b" == "$BUNDLE_ID_PREFIX" && -d "/Applications/${n}.app" ]]; then
                 APP_NAME="$n"
+                found_standard=1
                 break
             fi
         done < "$CONF"
+    fi
+
+    if [[ $found_standard -eq 0 && -d "/Applications/wechat2.app" ]]; then
+        APP_NAME="wechat2"
     fi
 
     if ! check_dst; then
@@ -270,16 +319,50 @@ do_resign() {
         return 1
     fi
 
-    local expected_bid current_bid
+    local expected_bid="" current_bid="" bundle_name="" executable_name="" should_register=0 should_update_config=0
     expected_bid=$(get_bundle_id "$APP_NAME")
     current_bid=$(plutil -extract CFBundleIdentifier raw "$(plist)" 2>/dev/null || echo "")
+    bundle_name=$(plutil -extract CFBundleName raw "$(plist)" 2>/dev/null || echo "")
+    executable_name=$(plutil -extract CFBundleExecutable raw "$(plist)" 2>/dev/null || echo "")
 
     if [[ -z "$expected_bid" ]]; then
-        warn "配置中未找到 ${APP_NAME} 的记录，仅重新签名"
-    elif [[ "$current_bid" == "$expected_bid" ]]; then
-        info "Bundle ID 正常: $current_bid"
+        if [[ "$APP_NAME" != "wechat2" ]]; then
+            warn "配置中未找到 ${APP_NAME} 的记录，仅重新签名"
+            expected_bid="$current_bid"
+        elif [[ "$current_bid" != "com.tencent.xinWeChat" &&
+                "$current_bid" != "$BUNDLE_ID_PREFIX" &&
+                "$bundle_name" != "WeChat" &&
+                "$bundle_name" != "微信" &&
+                "$executable_name" != "WeChat" ]]; then
+            warn "${APP_NAME}.app 不是可接管的微信双开实例（当前 Bundle ID: ${current_bid:-未知}）"
+            echo "         为避免误修改其他应用，请先确认该应用来自 WeChat.app 副本。"
+            return 1
+        else
+            warn "检测到未管理的 ${APP_NAME}.app（当前 Bundle ID: ${current_bid:-未知}）"
+            should_register=1
+            local CHOSEN_BUNDLE_ID=""
+            choose_bundle_id "$BUNDLE_ID_PREFIX" "$current_bid" "使用标准双开 ID" "保留当前应用 ID"
+            expected_bid="$CHOSEN_BUNDLE_ID"
+        fi
+    fi
+
+    if [[ $should_register -eq 1 ]]; then
+        step "接管 ${APP_NAME}.app → $expected_bid ..."
+    elif [[ "${current_bid:-}" != "$expected_bid" ]]; then
+        local CHOSEN_BUNDLE_ID=""
+        choose_bundle_id "$expected_bid" "$current_bid" "使用配置中的旧 ID" "使用当前应用的新 ID"
+        if [[ "$CHOSEN_BUNDLE_ID" == "$current_bid" ]]; then
+            expected_bid="$current_bid"
+            should_update_config=1
+        else
+            expected_bid="$CHOSEN_BUNDLE_ID"
+        fi
+    fi
+
+    if [[ "${current_bid:-}" == "$expected_bid" ]]; then
+        info "Bundle ID 正常: ${current_bid:-未知}"
     else
-        warn "Bundle ID 不匹配: 当前 $current_bid，应为 $expected_bid"
+        warn "Bundle ID 不匹配: 当前 ${current_bid:-未知}，应为 $expected_bid"
         step "恢复 Bundle Identifier → $expected_bid ..."
         sudo /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $expected_bid" "$(plist)"
         info "标识符已恢复"
@@ -288,6 +371,14 @@ do_resign() {
     step "重新签名应用..."
     sudo codesign --force --deep --sign - "$(dst_app)"
     info "签名完成"
+
+    if [[ $should_register -eq 1 ]]; then
+        save_instance "$APP_NAME" "$expected_bid"
+        info "已写入配置记录"
+    elif [[ $should_update_config -eq 1 ]]; then
+        set_instance "$APP_NAME" "$expected_bid"
+        info "已更新配置记录"
+    fi
 
     echo ""
     info "修复完成！${APP_NAME}.app 可以正常使用了。"

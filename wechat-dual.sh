@@ -13,23 +13,61 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 BOLD='\033[1m'
+DIM='\033[2m'
 NC='\033[0m'
+
+have_gum() { command -v gum >/dev/null 2>&1; }
+
+hr() {
+    echo -e "  ${DIM}────────────────────────────────────${NC}"
+}
 
 banner() {
     clear
-    echo -e "${CYAN}"
-    echo "  ╔═════════════════════════════════"
-    echo "  ║  WeChat Dual-Open Manager"
-    echo "  ║  macOS WeChat 双开管理工具"
-    echo "  ║  macOS剪贴板: https://pastehub.yayalu.top/"
-    echo "  ╚═════════════════════════════════"
-    echo -e "${NC}"
+    echo ""
+    echo -e "  ${BOLD}${CYAN}WeChat Dual-Open${NC}  ${DIM}·  macOS 微信双开管理${NC}"
+    hr
 }
 
 info()    { echo -e "  ${GREEN}[✓]${NC} $1"; }
 warn()    { echo -e "  ${YELLOW}[!]${NC} $1"; }
 error()   { echo -e "  ${RED}[✗]${NC} $1"; }
 step()    { echo -e "  ${CYAN}[→]${NC} $1"; }
+
+# 确认提示：有 gum 用方向键确认，否则 y/N
+ask_confirm() {
+    local prompt="$1"
+    if have_gum; then
+        gum confirm "$prompt"
+        return $?
+    fi
+    local ans
+    read -rp "  ${prompt} (y/N): " ans
+    [[ "$(echo "$ans" | tr '[:upper:]' '[:lower:]')" == "y" ]]
+}
+
+# 文本输入：有 gum 用输入框，否则 read；空输入回退到默认值
+ask_input() {
+    local prompt="$1"
+    local default="$2"
+    local value=""
+    if have_gum; then
+        value=$(gum input --prompt "  ${prompt}: " --placeholder "$default" --value "$default") || true
+        echo "${value:-$default}"
+        return 0
+    fi
+    read -rp "  ${prompt}（直接回车使用默认 ${default}）: " value
+    echo "${value:-$default}"
+}
+
+pause_return() {
+    echo ""
+    if have_gum; then
+        gum confirm --default=true "返回主菜单？" || true
+    else
+        read -rp "  按 Enter 返回主菜单..."
+    fi
+}
 
 # 读取最后一条记录的应用名（向后兼容旧格式）
 load_name() {
@@ -114,8 +152,7 @@ plist() {
 ask_name() {
     local default_name="$1"
     local name
-    read -rp "  为双开微信取个名字（直接回车使用默认名称 ${default_name}）: " name
-    name="${name:-$default_name}"
+    name=$(ask_input "为双开微信取个名字" "$default_name")
     # 移除 .app 后缀（如果用户误加了）
     name="${name%.app}"
     echo "$name"
@@ -164,8 +201,6 @@ choose_bundle_id() {
     local ans
 
     warn "检测到 Bundle ID 不一致，请选择要使用的 ID："
-    echo "         1) ${old_desc}: ${old_bid:-未知}"
-    echo "         2) ${new_desc}: ${new_bid:-未知}"
 
     if [[ -z "$new_bid" ]]; then
         warn "当前应用 Bundle ID 为空，无法选择新 ID。"
@@ -173,6 +208,21 @@ choose_bundle_id() {
         return 0
     fi
 
+    if have_gum; then
+        local selected=""
+        selected=$(gum choose --header "请选择 Bundle ID" \
+            "1) ${old_desc}: ${old_bid:-未知}" \
+            "2) ${new_desc}: ${new_bid:-未知}") || true
+        if [[ "$selected" == 2* ]]; then
+            CHOSEN_BUNDLE_ID="$new_bid"
+        else
+            CHOSEN_BUNDLE_ID="$old_bid"
+        fi
+        return 0
+    fi
+
+    echo "         1) ${old_desc}: ${old_bid:-未知}"
+    echo "         2) ${new_desc}: ${new_bid:-未知}"
     read -rp "  请选择 [1/2]（默认 1）: " ans
     if [[ "$ans" == "2" ]]; then
         CHOSEN_BUNDLE_ID="$new_bid"
@@ -223,20 +273,35 @@ do_multi_install() {
     echo ""
     info "安装多个双开实例（仅供学习调试）"
     echo ""
-    echo -e "  ${YELLOW}╔═══════════════════════════════════════════════╗${NC}"
-    echo -e "  ${YELLOW}║  免责声明                                     ║${NC}"
-    echo -e "  ${YELLOW}║                                               ║${NC}"
-    echo -e "  ${YELLOW}║  多开功能仅供学习调试使用。                    ║${NC}"
-    echo -e "  ${YELLOW}║  双开（2个实例）的稳定性已经过验证，           ║${NC}"
-    echo -e "  ${YELLOW}║  更多数量可能存在无法预知的风险，              ║${NC}"
-    echo -e "  ${YELLOW}║  包括客户端数据异常、账号风险等，              ║${NC}"
-    echo -e "  ${YELLOW}║  请自行验证并承担后果。                        ║${NC}"
-    echo -e "  ${YELLOW}║                                               ║${NC}"
-    echo -e "  ${YELLOW}║  继续即表示您已了解并接受上述风险。            ║${NC}"
-    echo -e "  ${YELLOW}╚═══════════════════════════════════════════════╝${NC}"
-    echo ""
-    read -rp "  是否继续？(y/N): " ans
-    [[ "$(echo "$ans" | tr '[:upper:]' '[:lower:]')" == "y" ]] || return 0
+
+    if have_gum; then
+        gum style --border rounded --border-foreground 220 --padding "0 1" --margin "0 2" \
+            "免责声明" \
+            "" \
+            "多开功能仅供学习调试使用。" \
+            "双开（2个实例）的稳定性已经过验证，" \
+            "更多数量可能存在无法预知的风险，" \
+            "包括客户端数据异常、账号风险等，" \
+            "请自行验证并承担后果。" \
+            "" \
+            "继续即表示您已了解并接受上述风险。"
+        echo ""
+        ask_confirm "是否继续？" || return 0
+    else
+        echo -e "  ${YELLOW}╔═══════════════════════════════════════════════╗${NC}"
+        echo -e "  ${YELLOW}║  免责声明                                     ║${NC}"
+        echo -e "  ${YELLOW}║                                               ║${NC}"
+        echo -e "  ${YELLOW}║  多开功能仅供学习调试使用。                    ║${NC}"
+        echo -e "  ${YELLOW}║  双开（2个实例）的稳定性已经过验证，           ║${NC}"
+        echo -e "  ${YELLOW}║  更多数量可能存在无法预知的风险，              ║${NC}"
+        echo -e "  ${YELLOW}║  包括客户端数据异常、账号风险等，              ║${NC}"
+        echo -e "  ${YELLOW}║  请自行验证并承担后果。                        ║${NC}"
+        echo -e "  ${YELLOW}║                                               ║${NC}"
+        echo -e "  ${YELLOW}║  继续即表示您已了解并接受上述风险。            ║${NC}"
+        echo -e "  ${YELLOW}╚═══════════════════════════════════════════════╝${NC}"
+        echo ""
+        ask_confirm "是否继续？" || return 0
+    fi
 
     echo ""
     if ! check_src; then
@@ -266,8 +331,7 @@ do_multi_install() {
 
     if name_exists "$name"; then
         warn "名称 '$name' 已存在于安装记录中。"
-        read -rp "  是否覆盖？(y/N): " ans2
-        [[ "$(echo "$ans2" | tr '[:upper:]' '[:lower:]')" == "y" ]] || return 0
+        ask_confirm "是否覆盖？" || return 0
         step "删除旧的 ${APP_NAME}.app..."
         sudo rm -rf "$(dst_app)"
         remove_instance "$name"
@@ -482,8 +546,7 @@ do_uninstall() {
         return 0
     fi
 
-    read -rp "  确认卸载 ${APP_NAME}.app？(y/N): " ans
-    [[ "$(echo "$ans" | tr '[:upper:]' '[:lower:]')" == "y" ]] || return 0
+    ask_confirm "确认卸载 ${APP_NAME}.app？" || return 0
 
     sudo rm -rf "$(dst_app)"
     remove_instance "$APP_NAME"
@@ -525,8 +588,7 @@ do_cleanup() {
         echo -e "      ${YELLOW}-${NC} ${r}.app"
     done <<< "${removed%$'\n'}"
     echo ""
-    read -rp "  确认清理？(y/N): " ans
-    if [[ "$(echo "$ans" | tr '[:upper:]' '[:lower:]')" != "y" ]]; then
+    if ! ask_confirm "确认清理？"; then
         rm -f "$tmp"
         warn "已取消"
         return 0
@@ -537,16 +599,36 @@ do_cleanup() {
 }
 
 show_menu() {
-    echo -e "  ${BOLD}请选择操作:${NC}"
+    echo -e "  ${BOLD}请选择操作${NC}"
     echo ""
-    echo -e "  ${CYAN}1)${NC} 安装双开     首次使用，复制并配置双开微信"
-    echo -e "  ${CYAN}2)${NC} 修复双开     双开微信自行更新后，重新设置标识符并签名"
-    echo -e "  ${CYAN}3)${NC} 查看状态     检查双开微信当前状态"
-    echo -e "  ${CYAN}4)${NC} 卸载双开     删除双开微信"
-    echo -e "  ${CYAN}5)${NC} 清理残留     清除已删除应用的配置记录"
-    echo -e "  ${CYAN}6)${NC} 进阶更多"
-    echo -e "  ${CYAN}0)${NC} 退出"
+    echo -e "  ${CYAN}${BOLD}1)${NC} 安装双开   ${DIM}首次配置双开微信${NC}"
+    echo -e "  ${CYAN}${BOLD}2)${NC} 修复双开   ${DIM}更新后重设标识符并签名${NC}"
+    echo -e "  ${CYAN}${BOLD}3)${NC} 刷新状态   ${DIM}重新扫描并显示当前状态${NC}"
+    echo -e "  ${CYAN}${BOLD}4)${NC} 卸载双开   ${DIM}删除双开微信${NC}"
+    echo -e "  ${CYAN}${BOLD}5)${NC} 清理残留   ${DIM}清除已删除应用的配置记录${NC}"
+    echo -e "  ${CYAN}${BOLD}6)${NC} 进阶更多   ${DIM}安装更多实例（学习调试）${NC}"
+    echo -e "  ${CYAN}${BOLD}0)${NC} 退出"
     echo ""
+    echo -e "  ${DIM}PasteHub · https://pastehub.yayalu.top/${NC}"
+    echo ""
+}
+
+# 有 gum 时用方向键选择，返回选项数字；取消则返回空
+menu_choose() {
+    local selected=""
+    selected=$(gum choose --header "请选择操作" \
+        "1) 安装双开" \
+        "2) 修复双开" \
+        "3) 刷新状态" \
+        "4) 卸载双开" \
+        "5) 清理残留" \
+        "6) 进阶更多" \
+        "0) 退出") || true
+    if [[ -z "$selected" ]]; then
+        echo ""
+        return 0
+    fi
+    echo "${selected%%)*}"
 }
 
 main() {
@@ -556,20 +638,29 @@ main() {
         banner
         do_status
         echo ""
-        show_menu
-        read -rp "  输入选项 [0-6]: " choice
+        hr
+        echo ""
+        local choice
+        if have_gum; then
+            echo -e "  ${DIM}PasteHub · https://pastehub.yayalu.top/${NC}"
+            echo ""
+            choice=$(menu_choose)
+        else
+            show_menu
+            read -rp "  输入选项 [0-6]: " choice
+        fi
         case "${choice}" in
             1) do_install ;;
             2) do_resign ;;
-            3) do_status ;;
+            3) continue ;;
             4) do_uninstall ;;
             5) do_cleanup ;;
             6) do_multi_install ;;
             0) echo ""; info "再见！"; exit 0 ;;
+            "") continue ;;
             *) warn "无效选项" ;;
         esac
-        echo ""
-        read -rp "  按 Enter 返回主菜单..."
+        pause_return
     done
 }
 
